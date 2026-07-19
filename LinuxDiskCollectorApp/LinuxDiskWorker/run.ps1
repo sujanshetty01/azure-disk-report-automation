@@ -10,7 +10,10 @@
 
 param($Input)
 
-$payload = $Input | ConvertFrom-Json
+$payload = $Input
+if ($Input -is [string]) {
+    try { $payload = $Input | ConvertFrom-Json } catch {}
+}
 
 $vmName         = $payload.VMName
 $rg             = $payload.ResourceGroup

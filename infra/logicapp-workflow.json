@@ -63,7 +63,7 @@
           "subscriptions": [
             "@{parameters('subscriptionId')}"
           ],
-          "query": "resources | where type =~ 'microsoft.compute/virtualmachines' | extend powerState = tostring(properties.extended.instanceView.powerState.code) | where powerState =~ 'PowerState/running' | extend osType = tostring(properties.storageProfile.osDisk.osType) | project name, resourceGroup, subscriptionId, location, osType, vmSize = tostring(properties.hardwareProfile.vmSize)"
+          "query": "resources | where type =~ 'microsoft.compute/virtualmachines' | extend powerState = tostring(properties.extended.instanceView.powerState.code) | extend osType = tolower(tostring(properties.storageProfile.osDisk.osType)) | where powerState =~ 'PowerState/running' or isempty(powerState) | project name, resourceGroup, subscriptionId, location, osType, vmSize = tostring(properties.hardwareProfile.vmSize)"
         }
       }
     },
@@ -86,7 +86,7 @@
           "subscriptions": [
             "@{parameters('subscriptionId')}"
           ],
-          "query": "resources | where type =~ 'microsoft.compute/disks' | extend diskState = tostring(properties.diskState) | where isempty(managedBy) or diskState == 'Unattached' | project name, resourceGroup, subscriptionId, location, sizeGb = tostring(properties.diskSizeGB), sku = tostring(sku.name)"
+          "query": "resources | where type =~ 'microsoft.compute/disks' | extend diskState = tostring(properties.diskState) | where isempty(managedBy) or diskState =~ 'Unattached' | project name, resourceGroup, subscriptionId, location, sizeGb = tostring(properties.diskSizeGB), sku = tostring(sku.name)"
         }
       }
     },
@@ -97,7 +97,7 @@
       },
       "inputs": {
         "from": "@body('Discover_All_Running_VMs')?['data']",
-        "where": "@equals(item()?['osType'], 'Linux')"
+        "where": "@equals(item()?['osType'], 'linux')"
       }
     },
     "Filter_Windows_VMs": {
@@ -107,7 +107,7 @@
       },
       "inputs": {
         "from": "@body('Discover_All_Running_VMs')?['data']",
-        "where": "@equals(item()?['osType'], 'Windows')"
+        "where": "@equals(item()?['osType'], 'windows')"
       }
     },
     "Start_Linux_Orchestration": {

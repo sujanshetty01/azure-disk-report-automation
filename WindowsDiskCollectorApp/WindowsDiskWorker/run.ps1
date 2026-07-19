@@ -12,6 +12,9 @@
 param($name)
 
 $payload = $name
+if ($name -is [string]) {
+    try { $payload = $name | ConvertFrom-Json } catch {}
+}
 
 $vmName         = $payload.VMName
 $rg             = $payload.ResourceGroup

@@ -37,7 +37,7 @@ foreach ($vm in $vmList) {
         Location       = $vm.location
         VmSize         = $vm.vmSize
         CorrelationId  = $correlationId
-    }
+    } | ConvertTo-Json -Depth 5
 
     $tasks += Invoke-DurableActivity -FunctionName 'WindowsDiskWorker' -Input $activityInput -NoWait
 }
