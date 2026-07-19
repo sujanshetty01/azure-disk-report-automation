@@ -1,0 +1,18 @@
+# Azure Functions
+bin/
+obj/
+local.settings.json
+.vscode/
+
+# PowerShell
+*.ps1xml
+*.clixml
+*.psc1
+*.pssc
+*.psd1.backup
+
+# Temp / Zip
+*.zip
+*.log
+tmp/
+temp/

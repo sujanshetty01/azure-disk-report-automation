@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "eastasia"
+    },
+    "nameSuffix": {
+      "value": "prod01"
+    },
+    "resourceGroupName": {
+      "value": "rg-diskreport-prod01"
+    },
+    "tags": {
+      "value": {
+        "Project": "DiskReportAutomation",
+        "ManagedBy": "Bicep",
+        "Environment": "Production",
+        "CostCenter": "CloudOps"
+      }
+    }
+  }
+}

@@ -1,0 +1,178 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "linuxFuncAppUrl": {
+      "type": "String",
+      "defaultValue": ""
+    },
+    "windowsFuncAppUrl": {
+      "type": "String",
+      "defaultValue": ""
+    },
+    "subscriptionId": {
+      "type": "String",
+      "defaultValue": ""
+    }
+  },
+  "triggers": {
+    "Recurrence_Weekly": {
+      "type": "Recurrence",
+      "recurrence": {
+        "frequency": "Week",
+        "interval": 1,
+        "schedule": {
+          "weekDays": ["Monday"],
+          "hours": ["6"],
+          "minutes": [0]
+        },
+        "timeZone": "UTC"
+      }
+    }
+  },
+  "actions": {
+    "Initialize_CorrelationId": {
+      "type": "InitializeVariable",
+      "runAfter": {},
+      "inputs": {
+        "variables": [
+          {
+            "name": "correlationId",
+            "type": "string",
+            "value": "@{guid()}"
+          }
+        ]
+      }
+    },
+    "Discover_All_Running_VMs": {
+      "type": "Http",
+      "runAfter": {
+        "Initialize_CorrelationId": ["Succeeded"]
+      },
+      "inputs": {
+        "method": "POST",
+        "uri": "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01",
+        "authentication": {
+          "type": "ManagedServiceIdentity",
+          "audience": "https://management.azure.com/"
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "subscriptions": [
+            "@{parameters('subscriptionId')}"
+          ],
+          "query": "resources | where type =~ 'microsoft.compute/virtualmachines' | extend powerState = tostring(properties.extended.instanceView.powerState.code) | where powerState =~ 'PowerState/running' | extend osType = tostring(properties.storageProfile.osDisk.osType) | project name, resourceGroup, subscriptionId, location, osType, vmSize = tostring(properties.hardwareProfile.vmSize)"
+        }
+      }
+    },
+    "Discover_Unattached_Disks": {
+      "type": "Http",
+      "runAfter": {
+        "Initialize_CorrelationId": ["Succeeded"]
+      },
+      "inputs": {
+        "method": "POST",
+        "uri": "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01",
+        "authentication": {
+          "type": "ManagedServiceIdentity",
+          "audience": "https://management.azure.com/"
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "subscriptions": [
+            "@{parameters('subscriptionId')}"
+          ],
+          "query": "resources | where type =~ 'microsoft.compute/disks' | extend diskState = tostring(properties.diskState) | where isempty(managedBy) or diskState == 'Unattached' | project name, resourceGroup, subscriptionId, location, sizeGb = tostring(properties.diskSizeGB), sku = tostring(sku.name)"
+        }
+      }
+    },
+    "Filter_Linux_VMs": {
+      "type": "Query",
+      "runAfter": {
+        "Discover_All_Running_VMs": ["Succeeded"]
+      },
+      "inputs": {
+        "from": "@body('Discover_All_Running_VMs')?['data']",
+        "where": "@equals(item()?['osType'], 'Linux')"
+      }
+    },
+    "Filter_Windows_VMs": {
+      "type": "Query",
+      "runAfter": {
+        "Discover_All_Running_VMs": ["Succeeded"]
+      },
+      "inputs": {
+        "from": "@body('Discover_All_Running_VMs')?['data']",
+        "where": "@equals(item()?['osType'], 'Windows')"
+      }
+    },
+    "Start_Linux_Orchestration": {
+      "type": "Http",
+      "runAfter": {
+        "Filter_Linux_VMs": ["Succeeded"]
+      },
+      "inputs": {
+        "method": "POST",
+        "uri": "@{parameters('linuxFuncAppUrl')}/api/orchestrators/LinuxDiskOrchestrator",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "vmList": "@body('Filter_Linux_VMs')",
+          "correlationId": "@variables('correlationId')"
+        }
+      }
+    },
+    "Start_Windows_Orchestration": {
+      "type": "Http",
+      "runAfter": {
+        "Filter_Windows_VMs": ["Succeeded"]
+      },
+      "inputs": {
+        "method": "POST",
+        "uri": "@{parameters('windowsFuncAppUrl')}/api/orchestrators/WindowsDiskOrchestrator",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "vmList": "@body('Filter_Windows_VMs')",
+          "correlationId": "@variables('correlationId')"
+        }
+      }
+    },
+
+    "Compose_Merged_Results": {
+      "type": "Compose",
+      "runAfter": {
+        "Start_Linux_Orchestration": ["Succeeded"],
+        "Start_Windows_Orchestration": ["Succeeded"],
+        "Discover_Unattached_Disks": ["Succeeded"]
+      },
+      "inputs": {
+        "linuxResults": "@body('Start_Linux_Orchestration')?['output']?['results']",
+        "windowsResults": "@body('Start_Windows_Orchestration')?['output']?['results']",
+        "unattachedDisks": "@body('Discover_Unattached_Disks')?['data']",
+        "correlationId": "@variables('correlationId')"
+      }
+    },
+    "Generate_Excel_Report": {
+      "type": "Http",
+      "runAfter": {
+        "Compose_Merged_Results": ["Succeeded"]
+      },
+      "inputs": {
+        "method": "POST",
+        "uri": "@{parameters('windowsFuncAppUrl')}/api/generate-excel",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "@outputs('Compose_Merged_Results')"
+      }
+    }
+  },
+  "outputs": {}
+}

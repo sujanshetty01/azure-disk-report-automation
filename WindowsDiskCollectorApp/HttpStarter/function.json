@@ -1,0 +1,22 @@
+{
+  "bindings": [
+    {
+      "authLevel": "anonymous",
+      "name": "Request",
+      "type": "httpTrigger",
+      "direction": "in",
+      "route": "orchestrators/{functionName}",
+      "methods": ["post", "get"]
+    },
+    {
+      "name": "Response",
+      "type": "http",
+      "direction": "out"
+    },
+    {
+      "name": "starter",
+      "type": "durableClient",
+      "direction": "in"
+    }
+  ]
+}

@@ -1,0 +1,579 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.45.15.27210",
+      "templateHash": "12853211845492757788"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string"
+    },
+    "nameSuffix": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "object"
+    }
+  },
+  "variables": {
+    "$fxv#0": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "linuxFuncAppUrl": {
+          "type": "String",
+          "defaultValue": ""
+        },
+        "windowsFuncAppUrl": {
+          "type": "String",
+          "defaultValue": ""
+        }
+      },
+      "triggers": {
+        "Recurrence_Weekly": {
+          "type": "Recurrence",
+          "recurrence": {
+            "frequency": "Week",
+            "interval": 1,
+            "schedule": {
+              "weekDays": [
+                "Monday"
+              ],
+              "hours": [
+                "6"
+              ],
+              "minutes": [
+                0
+              ]
+            },
+            "timeZone": "UTC"
+          }
+        }
+      },
+      "actions": {
+        "Initialize_CorrelationId": {
+          "type": "InitializeVariable",
+          "runAfter": {},
+          "inputs": {
+            "variables": [
+              {
+                "name": "correlationId",
+                "type": "string",
+                "value": "@{guid()}"
+              }
+            ]
+          }
+        },
+        "Discover_All_Running_VMs": {
+          "type": "Http",
+          "runAfter": {
+            "Initialize_CorrelationId": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "method": "POST",
+            "uri": "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01",
+            "authentication": {
+              "type": "ManagedServiceIdentity",
+              "audience": "https://management.azure.com/"
+            },
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "query": "resources | where type =~ 'microsoft.compute/virtualmachines' | extend powerState = tostring(properties.extended.instanceView.powerState.code) | where powerState =~ 'PowerState/running' | extend osType = tostring(properties.storageProfile.osDisk.osType) | project name, resourceGroup, subscriptionId, location, osType, vmSize = tostring(properties.hardwareProfile.vmSize)"
+            }
+          }
+        },
+        "Discover_Unattached_Disks": {
+          "type": "Http",
+          "runAfter": {
+            "Initialize_CorrelationId": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "method": "POST",
+            "uri": "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01",
+            "authentication": {
+              "type": "ManagedServiceIdentity",
+              "audience": "https://management.azure.com/"
+            },
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "query": "resources | where type =~ 'microsoft.compute/disks' | extend diskState = tostring(properties.diskState) | where isempty(managedBy) or diskState == 'Unattached' | project name, resourceGroup, subscriptionId, location, sizeGb = tostring(properties.diskSizeGB), sku = tostring(sku.name)"
+            }
+          }
+        },
+        "Filter_Linux_VMs": {
+          "type": "Query",
+          "runAfter": {
+            "Discover_All_Running_VMs": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "from": "@body('Discover_All_Running_VMs')?['data']",
+            "where": "@equals(item()?['osType'], 'Linux')"
+          }
+        },
+        "Filter_Windows_VMs": {
+          "type": "Query",
+          "runAfter": {
+            "Discover_All_Running_VMs": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "from": "@body('Discover_All_Running_VMs')?['data']",
+            "where": "@equals(item()?['osType'], 'Windows')"
+          }
+        },
+        "Start_Linux_Orchestration": {
+          "type": "Http",
+          "runAfter": {
+            "Filter_Linux_VMs": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "method": "POST",
+            "uri": "@{parameters('linuxFuncAppUrl')}/api/orchestrators/LinuxDiskOrchestrator",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "vmList": "@body('Filter_Linux_VMs')",
+              "correlationId": "@variables('correlationId')"
+            }
+          }
+        },
+        "Start_Windows_Orchestration": {
+          "type": "Http",
+          "runAfter": {
+            "Filter_Windows_VMs": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "method": "POST",
+            "uri": "@{parameters('windowsFuncAppUrl')}/api/orchestrators/WindowsDiskOrchestrator",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": {
+              "vmList": "@body('Filter_Windows_VMs')",
+              "correlationId": "@variables('correlationId')"
+            }
+          }
+        },
+        "Poll_Linux_Completion": {
+          "type": "Until",
+          "runAfter": {
+            "Start_Linux_Orchestration": [
+              "Succeeded"
+            ]
+          },
+          "expression": "@equals(body('Check_Linux_Status')?['runtimeStatus'], 'Completed')",
+          "limit": {
+            "count": 240,
+            "timeout": "PT4H"
+          },
+          "actions": {
+            "Delay_Linux_30s": {
+              "type": "Wait",
+              "runAfter": {},
+              "inputs": {
+                "interval": {
+                  "count": 30,
+                  "unit": "Second"
+                }
+              }
+            },
+            "Check_Linux_Status": {
+              "type": "Http",
+              "runAfter": {
+                "Delay_Linux_30s": [
+                  "Succeeded"
+                ]
+              },
+              "inputs": {
+                "method": "GET",
+                "uri": "@body('Start_Linux_Orchestration')?['statusQueryGetUri']"
+              }
+            }
+          }
+        },
+        "Poll_Windows_Completion": {
+          "type": "Until",
+          "runAfter": {
+            "Start_Windows_Orchestration": [
+              "Succeeded"
+            ]
+          },
+          "expression": "@equals(body('Check_Windows_Status')?['runtimeStatus'], 'Completed')",
+          "limit": {
+            "count": 240,
+            "timeout": "PT4H"
+          },
+          "actions": {
+            "Delay_Windows_30s": {
+              "type": "Wait",
+              "runAfter": {},
+              "inputs": {
+                "interval": {
+                  "count": 30,
+                  "unit": "Second"
+                }
+              }
+            },
+            "Check_Windows_Status": {
+              "type": "Http",
+              "runAfter": {
+                "Delay_Windows_30s": [
+                  "Succeeded"
+                ]
+              },
+              "inputs": {
+                "method": "GET",
+                "uri": "@body('Start_Windows_Orchestration')?['statusQueryGetUri']"
+              }
+            }
+          }
+        },
+        "Compose_Merged_Results": {
+          "type": "Compose",
+          "runAfter": {
+            "Poll_Linux_Completion": [
+              "Succeeded"
+            ],
+            "Poll_Windows_Completion": [
+              "Succeeded"
+            ],
+            "Discover_Unattached_Disks": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "linuxResults": "@body('Check_Linux_Status')?['output']?['results']",
+            "windowsResults": "@body('Check_Windows_Status')?['output']?['results']",
+            "unattachedDisks": "@body('Discover_Unattached_Disks')?['data']",
+            "correlationId": "@variables('correlationId')"
+          }
+        },
+        "Generate_Excel_Report": {
+          "type": "Http",
+          "runAfter": {
+            "Compose_Merged_Results": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "method": "POST",
+            "uri": "@{parameters('windowsFuncAppUrl')}/api/generate-excel",
+            "headers": {
+              "Content-Type": "application/json"
+            },
+            "body": "@outputs('Compose_Merged_Results')"
+          }
+        }
+      },
+      "outputs": {}
+    },
+    "storageAccountName": "[format('diskreportsa{0}', parameters('nameSuffix'))]",
+    "linuxFuncAppName": "[format('diskreport-linux-{0}', parameters('nameSuffix'))]",
+    "windowsFuncAppName": "[format('diskreport-win-{0}', parameters('nameSuffix'))]",
+    "linuxPlanName": "[format('diskreport-linux-plan-{0}', parameters('nameSuffix'))]",
+    "windowsPlanName": "[format('diskreport-win-plan-{0}', parameters('nameSuffix'))]",
+    "appInsightsName": "[format('diskreport-ai-{0}', parameters('nameSuffix'))]",
+    "logicAppName": "[format('diskreport-logic-{0}', parameters('nameSuffix'))]",
+    "blobContainerName": "disk-reports",
+    "storageBlobContributorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "supportsHttpsTrafficOnly": true,
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "networkAcls": {
+          "defaultAction": "Allow",
+          "bypass": "AzureServices"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageAccountName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageAccountName'), 'default', variables('blobContainerName'))]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('storageAccountName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('appInsightsName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "RetentionInDays": 90
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('linuxPlanName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "linux",
+      "sku": {
+        "name": "Y1",
+        "tier": "Dynamic"
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('linuxFuncAppName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('linuxPlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "PowerShell|7.4",
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storageAccountName'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value)]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "powershell"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('linuxPlanName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('windowsPlanName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "functionapp",
+      "sku": {
+        "name": "Y1",
+        "tier": "Dynamic"
+      },
+      "properties": {
+        "reserved": false
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-12-01",
+      "name": "[variables('windowsFuncAppName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "functionapp",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('windowsPlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "powerShellVersion": "7.4",
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storageAccountName'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storageAccountName'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTSHARE",
+              "value": "[toLower(variables('windowsFuncAppName'))]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "powershell"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "REPORT_STORAGE_ACCOUNT_NAME",
+              "value": "[variables('storageAccountName')]"
+            },
+            {
+              "name": "REPORT_CONTAINER_NAME",
+              "value": "[variables('blobContainerName')]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('windowsPlanName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), resourceId('Microsoft.Web/sites', variables('linuxFuncAppName')), variables('storageBlobContributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[variables('storageBlobContributorRoleId')]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('linuxFuncAppName')), '2023-12-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('linuxFuncAppName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), resourceId('Microsoft.Web/sites', variables('windowsFuncAppName')), variables('storageBlobContributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[variables('storageBlobContributorRoleId')]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('windowsFuncAppName')), '2023-12-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('windowsFuncAppName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[variables('logicAppName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "state": "Enabled",
+        "definition": "[variables('$fxv#0')]",
+        "parameters": {
+          "linuxFuncAppUrl": {
+            "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('linuxFuncAppName')), '2023-12-01').defaultHostName)]"
+          },
+          "windowsFuncAppUrl": {
+            "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('windowsFuncAppName')), '2023-12-01').defaultHostName)]"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', variables('linuxFuncAppName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('windowsFuncAppName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "linuxFuncAppName": {
+      "type": "string",
+      "value": "[variables('linuxFuncAppName')]"
+    },
+    "windowsFuncAppName": {
+      "type": "string",
+      "value": "[variables('windowsFuncAppName')]"
+    },
+    "linuxFuncPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('linuxFuncAppName')), '2023-12-01', 'full').identity.principalId]"
+    },
+    "windowsFuncPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('windowsFuncAppName')), '2023-12-01', 'full').identity.principalId]"
+    },
+    "logicAppPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Logic/workflows', variables('logicAppName')), '2019-05-01', 'full').identity.principalId]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageAccountName')]"
+    },
+    "logicAppName": {
+      "type": "string",
+      "value": "[variables('logicAppName')]"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "bindings": [
+    {
+      "authLevel": "anonymous",
+      "name": "Request",
+      "type": "httpTrigger",
+      "direction": "in",
+      "route": "generate-excel",
+      "methods": ["post"]
+    },
+    {
+      "name": "Response",
+      "type": "http",
+      "direction": "out"
+    }
+  ]
+}
