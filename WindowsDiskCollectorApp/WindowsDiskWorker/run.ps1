@@ -28,7 +28,7 @@ try {
     # ─── Execute RunPowerShellScript via REST API ─────────────────────────────
     
     # 1. Get Managed Identity Token
-    $tokenUrl = "$env:IDENTITY_ENDPOINT`?resource=https://management.azure.com/&api-version=2019-08-01"
+    $tokenUrl = "$env:IDENTITY_ENDPOINT" + "?resource=https://management.azure.com/&api-version=2019-08-01"
     $tokenResponse = Invoke-RestMethod -Uri $tokenUrl -Method Get -Headers @{ "X-IDENTITY-HEADER" = $env:IDENTITY_HEADER }
     $accessToken = $tokenResponse.access_token
 
@@ -37,10 +37,18 @@ try {
         "Content-Type" = "application/json"
     }
 
-    # 2. Start RunCommand
-    $runCmdUrl = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$rg/providers/Microsoft.Compute/virtualMachines/$vmName/runCommand?api-version=2024-03-01"
+    # 2. Fetch VM storage profile to get Azure managed disk names
+    $vmUrl = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$rg/providers/Microsoft.Compute/virtualMachines/${vmName}?api-version=2024-03-01"
+    $vmDetails = Invoke-RestMethod -Method Get -Uri $vmUrl -Headers $headers -ErrorAction SilentlyContinue
+
+    # Build a map: 'OsDisk' -> disk resource name, then data disks by LUN order
+    $osDiskName = if ($vmDetails.properties.storageProfile.osDisk.name) { $vmDetails.properties.storageProfile.osDisk.name } else { 'Unknown' }
+    $dataDiskNames = @($vmDetails.properties.storageProfile.dataDisks | Sort-Object lun | ForEach-Object { $_.name })
+
+    # 3. Start RunCommand
+    $runCmdUrl = "https://management.azure.com/subscriptions/$subscriptionId/resourceGroups/$rg/providers/Microsoft.Compute/virtualMachines/${vmName}/runCommand?api-version=2024-03-01"
     $scriptLines = @(
-        "`$disks = Get-Volume | Where-Object { `$_.DriveType -eq 'Fixed' -and `$_.FileSystemLabel -ne 'System Reserved' -and `$_.DriveLetter }",
+        "`$disks = Get-Volume | Where-Object { `$_.DriveType -eq 'Fixed' -and `$_.FileSystemLabel -ne 'System Reserved' -and `$_.DriveLetter } | Sort-Object DriveLetter",
         "foreach (`$disk in `$disks) {",
         "    `$totalGB = `$disk.Size / 1GB",
         "    `$freeGB  = `$disk.SizeRemaining / 1GB",
@@ -61,9 +69,22 @@ try {
     $initialResponse = Invoke-WebRequest -Method Post -Uri $runCmdUrl -Headers $headers -Body $body -ErrorAction Stop -UseBasicParsing
 
     # 3. Poll for Completion
-    $asyncUrl = $initialResponse.Headers["Location"] | Select-Object -First 1
+    $asyncUrl = $null
+    foreach ($key in $initialResponse.Headers.Keys) {
+        if ($key -match '^Location$') {
+            $val = $initialResponse.Headers[$key]
+            if ($val -is [array]) { $asyncUrl = $val[0] } else { $asyncUrl = $val }
+            break
+        }
+    }
     if (-not $asyncUrl) {
-        $asyncUrl = $initialResponse.Headers["Azure-AsyncOperation"] | Select-Object -First 1
+        foreach ($key in $initialResponse.Headers.Keys) {
+            if ($key -match '^Azure-AsyncOperation$') {
+                $val = $initialResponse.Headers[$key]
+                if ($val -is [array]) { $asyncUrl = $val[0] } else { $asyncUrl = $val }
+                break
+            }
+        }
     }
 
     $status = "InProgress"
@@ -117,6 +138,7 @@ try {
             Location           = $location
             VmSize             = $vmSize
             OsType             = 'Windows'
+            DiskName           = 'N/A'
             DiskIdentifier     = 'N/A'
             UsedGB             = 0
             ProvisionedGB      = 0
@@ -133,6 +155,9 @@ try {
     $diskEntries = @()
     $lines = $output.Trim().Split("`n", [System.StringSplitOptions]::RemoveEmptyEntries)
 
+    # Drives are sorted alphabetically. C: is OS disk, D: is Temp, others are Data disks.
+    $dataDiskCounter = 0
+
     foreach ($line in $lines) {
         $parts = $line.Trim().Split('|')
         if ($parts.Count -ge 5) {
@@ -140,6 +165,21 @@ try {
             $totalGB  = [double]$parts[2].Trim()
             $freeGB   = [double]$parts[3].Trim()
             $pct      = [double]$parts[4].Trim()
+            $drive    = $parts[0].Trim()
+
+            # Map drive letter to Azure disk name
+            if ($drive -eq 'C:') {
+                $azureDiskName = $osDiskName
+            } elseif ($drive -eq 'D:') {
+                $azureDiskName = 'Temporary Resource Disk'
+            } else {
+                if ($dataDiskCounter -lt $dataDiskNames.Count) {
+                    $azureDiskName = $dataDiskNames[$dataDiskCounter]
+                    $dataDiskCounter++
+                } else {
+                    $azureDiskName = "Data Disk (Unmapped $drive)"
+                }
+            }
 
             # Recommendation logic
             $recommendation = if ($pct -lt 5) { 'Deallocate' }
@@ -153,7 +193,8 @@ try {
                 Location           = $location
                 VmSize             = $vmSize
                 OsType             = 'Windows'
-                DiskIdentifier     = $parts[0].Trim()
+                DiskName           = $azureDiskName
+                DiskIdentifier     = $drive
                 UsedGB             = $usedGB
                 ProvisionedGB      = $totalGB
                 FreeGB             = $freeGB
@@ -183,6 +224,7 @@ catch {
         Location           = $location
         VmSize             = $vmSize
         OsType             = 'Windows'
+        DiskName           = 'N/A'
         DiskIdentifier     = 'N/A'
         UsedGB             = 0
         ProvisionedGB      = 0

@@ -99,6 +99,7 @@ try {
                 VMName               = if ($entry.VMName) { $entry.VMName } else { $entry.name ?? 'Unknown' }
                 ResourceGroup        = $entry.ResourceGroup ?? 'Unknown'
                 Location             = $entry.Location ?? 'Unknown'
+                DiskName             = $entry.DiskName ?? 'N/A'
                 VmSize               = $entry.VmSize ?? ($entry.sku ?? 'Unknown')
                 OsType               = $osType
                 DiskIdentifier       = $entry.DiskIdentifier ?? 'N/A'
@@ -141,6 +142,7 @@ try {
             ResourceGroup      = $disk.resourceGroup
             Location           = $disk.location
             sku                = $disk.sku
+            DiskName           = $disk.name
             DiskIdentifier     = 'N/A'
             ProvisionedGB      = $disk.sizeGb
             UsedGB             = $disk.sizeGb

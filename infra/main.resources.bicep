@@ -121,13 +121,21 @@ resource linuxFuncApp 'Microsoft.Web/sites@2023-12-01' = {
     serverFarmId: linuxPlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'PowerShell|7.2'
+      linuxFxVersion: 'PowerShell|7.4'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       appSettings: [
         {
           name: 'AzureWebJobsStorage'
           value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+        }
+        {
+          name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
+          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+        }
+        {
+          name: 'WEBSITE_CONTENTSHARE'
+          value: toLower(linuxFuncAppName)
         }
         {
           name: 'FUNCTIONS_EXTENSION_VERSION'
@@ -144,10 +152,6 @@ resource linuxFuncApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: appInsights.properties.ConnectionString
-        }
-        {
-          name: 'WEBSITE_RUN_FROM_PACKAGE'
-          value: '1'
         }
         {
           name: 'REPORT_STORAGE_ACCOUNT_NAME'
@@ -277,7 +281,7 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
     definition: loadJsonContent('logicapp-workflow.json')
     parameters: {
       linuxFuncAppUrl: {
-        value: 'https://${windowsFuncApp.properties.defaultHostName}'
+        value: 'https://${linuxFuncApp.properties.defaultHostName}'
       }
       windowsFuncAppUrl: {
         value: 'https://${windowsFuncApp.properties.defaultHostName}'

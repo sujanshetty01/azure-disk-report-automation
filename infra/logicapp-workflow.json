@@ -117,7 +117,7 @@
       },
       "inputs": {
         "method": "POST",
-        "uri": "@{parameters('linuxFuncAppUrl')}/api/orchestrators/LinuxDiskOrchestrator",
+        "uri": "@{parameters('windowsFuncAppUrl')}/api/orchestrators/LinuxDiskOrchestrator",
         "headers": {
           "Content-Type": "application/json"
         },
