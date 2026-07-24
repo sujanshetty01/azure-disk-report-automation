@@ -17,9 +17,7 @@ param tags object
 // ─── Derived Names ──────────────────────────────────────────────────────────
 
 var storageAccountName = 'diskreportsa${nameSuffix}'
-var linuxFuncAppName = 'diskreport-linux-${nameSuffix}'
 var windowsFuncAppName = 'diskreport-win-${nameSuffix}'
-var linuxPlanName = 'diskreport-linux-plan-${nameSuffix}'
 var windowsPlanName = 'diskreport-win-plan-${nameSuffix}'
 var appInsightsName = 'diskreport-ai-${nameSuffix}'
 var logicAppName = 'diskreport-logic-${nameSuffix}'
@@ -88,81 +86,6 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
     Application_Type: 'web'
     RetentionInDays: 90
     WorkspaceResourceId: logAnalyticsWorkspace.id
-  }
-}
-
-// ============================================================================
-// 3. LINUX FUNCTION APP (Consumption Plan)
-// ============================================================================
-
-resource linuxPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
-  name: linuxPlanName
-  location: location
-  tags: tags
-  kind: 'linux'
-  sku: {
-    name: 'Y1'
-    tier: 'Dynamic'
-  }
-  properties: {
-    reserved: true
-  }
-}
-
-resource linuxFuncApp 'Microsoft.Web/sites@2023-12-01' = {
-  name: linuxFuncAppName
-  location: location
-  tags: tags
-  kind: 'functionapp,linux'
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    serverFarmId: linuxPlan.id
-    httpsOnly: true
-    siteConfig: {
-      linuxFxVersion: 'PowerShell|7.4'
-      ftpsState: 'Disabled'
-      minTlsVersion: '1.2'
-      appSettings: [
-        {
-          name: 'AzureWebJobsStorage'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
-        }
-        {
-          name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
-        }
-        {
-          name: 'WEBSITE_CONTENTSHARE'
-          value: toLower(linuxFuncAppName)
-        }
-        {
-          name: 'FUNCTIONS_EXTENSION_VERSION'
-          value: '~4'
-        }
-        {
-          name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'powershell'
-        }
-        {
-          name: 'APPINSIGHTS_INSTRUMENTATIONKEY'
-          value: appInsights.properties.InstrumentationKey
-        }
-        {
-          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-          value: appInsights.properties.ConnectionString
-        }
-        {
-          name: 'REPORT_STORAGE_ACCOUNT_NAME'
-          value: storageAccount.name
-        }
-        {
-          name: 'REPORT_CONTAINER_NAME'
-          value: blobContainerName
-        }
-      ]
-    }
   }
 }
 
@@ -245,16 +168,6 @@ resource windowsFuncApp 'Microsoft.Web/sites@2023-12-01' = {
 // 5. RBAC: Storage Blob Data Contributor (both Function App MSIs)
 // ============================================================================
 
-resource blobRoleLinux 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, linuxFuncApp.id, storageBlobContributorRoleId)
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: storageBlobContributorRoleId
-    principalId: linuxFuncApp.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
 resource blobRoleWindows 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(storageAccount.id, windowsFuncApp.id, storageBlobContributorRoleId)
   scope: storageAccount
@@ -280,9 +193,6 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
     state: 'Enabled'
     definition: loadJsonContent('logicapp-workflow.json')
     parameters: {
-      linuxFuncAppUrl: {
-        value: 'https://${linuxFuncApp.properties.defaultHostName}'
-      }
       windowsFuncAppUrl: {
         value: 'https://${windowsFuncApp.properties.defaultHostName}'
       }
@@ -293,13 +203,7 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
   }
 }
 
-// ============================================================================
-// OUTPUTS
-// ============================================================================
-
-output linuxFuncAppName string = linuxFuncApp.name
 output windowsFuncAppName string = windowsFuncApp.name
-output linuxFuncPrincipalId string = linuxFuncApp.identity.principalId
 output windowsFuncPrincipalId string = windowsFuncApp.identity.principalId
 output logicAppPrincipalId string = logicApp.identity.principalId
 output storageAccountName string = storageAccount.name
