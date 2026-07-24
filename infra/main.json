@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.45.15.27210",
-      "templateHash": "16291203594136968335"
+      "templateHash": "360014727355721983"
     }
   },
   "parameters": {
@@ -45,8 +45,7 @@
   "variables": {
     "vmContributorRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '9980e02c-c2be-4d73-94e8-173b1dc7cf3c')]",
     "readerRoleId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'acdd72a7-3385-48ef-bd42-f606fba81ae7')]",
-    "linuxFuncAppName": "[format('diskreport-linux-{0}', parameters('nameSuffix'))]",
-    "windowsFuncAppName": "[format('diskreport-win-{0}', parameters('nameSuffix'))]",
+    "funcAppName": "[format('diskreport-func-{0}', parameters('nameSuffix'))]",
     "logicAppName": "[format('diskreport-logic-{0}', parameters('nameSuffix'))]"
   },
   "resources": [
@@ -60,26 +59,12 @@
     {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
-      "name": "[guid(subscription().id, variables('linuxFuncAppName'), variables('vmContributorRoleId'))]",
+      "name": "[guid(subscription().id, variables('funcAppName'), variables('vmContributorRoleId'))]",
       "properties": {
         "roleDefinitionId": "[variables('vmContributorRoleId')]",
-        "principalId": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-diskreport-resources'), '2025-04-01').outputs.linuxFuncPrincipalId.value]",
+        "principalId": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-diskreport-resources'), '2025-04-01').outputs.funcPrincipalId.value]",
         "principalType": "ServicePrincipal",
-        "description": "Linux Function App MSI — VM Contributor for RunShellScript"
-      },
-      "dependsOn": [
-        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-diskreport-resources')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "name": "[guid(subscription().id, variables('windowsFuncAppName'), variables('vmContributorRoleId'))]",
-      "properties": {
-        "roleDefinitionId": "[variables('vmContributorRoleId')]",
-        "principalId": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-diskreport-resources'), '2025-04-01').outputs.windowsFuncPrincipalId.value]",
-        "principalType": "ServicePrincipal",
-        "description": "Windows Function App MSI — VM Contributor for RunPowerShellScript"
+        "description": "Function App MSI — VM Contributor for RunShellScript and RunPowerShellScript"
       },
       "dependsOn": [
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-diskreport-resources')]"
@@ -127,7 +112,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.45.15.27210",
-              "templateHash": "17854205064796176422"
+              "templateHash": "3693347716244322472"
             }
           },
           "parameters": {
@@ -146,11 +131,7 @@
               "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
               "contentVersion": "1.0.0.0",
               "parameters": {
-                "linuxFuncAppUrl": {
-                  "type": "String",
-                  "defaultValue": ""
-                },
-                "windowsFuncAppUrl": {
+                "funcAppUrl": {
                   "type": "String",
                   "defaultValue": ""
                 },
@@ -215,7 +196,7 @@
                       "subscriptions": [
                         "@{parameters('subscriptionId')}"
                       ],
-                      "query": "resources | where type =~ 'microsoft.compute/virtualmachines' | extend powerState = tostring(properties.extended.instanceView.powerState.code) | where powerState =~ 'PowerState/running' | extend osType = tostring(properties.storageProfile.osDisk.osType) | project name, resourceGroup, subscriptionId, location, osType, vmSize = tostring(properties.hardwareProfile.vmSize)"
+                      "query": "resources | where type =~ 'microsoft.compute/virtualmachines' | extend powerState = tostring(properties.extended.instanceView.powerState.code) | extend osType = tolower(tostring(properties.storageProfile.osDisk.osType)) | where powerState =~ 'PowerState/running' or isempty(powerState) | project name, resourceGroup, subscriptionId, location, osType, vmSize = tostring(properties.hardwareProfile.vmSize)"
                     }
                   }
                 },
@@ -240,7 +221,7 @@
                       "subscriptions": [
                         "@{parameters('subscriptionId')}"
                       ],
-                      "query": "resources | where type =~ 'microsoft.compute/disks' | extend diskState = tostring(properties.diskState) | where isempty(managedBy) or diskState == 'Unattached' | project name, resourceGroup, subscriptionId, location, sizeGb = tostring(properties.diskSizeGB), sku = tostring(sku.name)"
+                      "query": "resources | where type =~ 'microsoft.compute/disks' | extend diskState = tostring(properties.diskState) | where isempty(managedBy) or diskState =~ 'Unattached' | project name, resourceGroup, subscriptionId, location, sizeGb = tostring(properties.diskSizeGB), sku = tostring(sku.name)"
                     }
                   }
                 },
@@ -253,7 +234,7 @@
                   },
                   "inputs": {
                     "from": "@body('Discover_All_Running_VMs')?['data']",
-                    "where": "@equals(item()?['osType'], 'Linux')"
+                    "where": "@equals(item()?['osType'], 'linux')"
                   }
                 },
                 "Filter_Windows_VMs": {
@@ -265,7 +246,7 @@
                   },
                   "inputs": {
                     "from": "@body('Discover_All_Running_VMs')?['data']",
-                    "where": "@equals(item()?['osType'], 'Windows')"
+                    "where": "@equals(item()?['osType'], 'windows')"
                   }
                 },
                 "Start_Linux_Orchestration": {
@@ -277,7 +258,7 @@
                   },
                   "inputs": {
                     "method": "POST",
-                    "uri": "@{parameters('linuxFuncAppUrl')}/api/orchestrators/LinuxDiskOrchestrator",
+                    "uri": "@{parameters('funcAppUrl')}/api/orchestrators/LinuxDiskOrchestrator",
                     "headers": {
                       "Content-Type": "application/json"
                     },
@@ -296,7 +277,7 @@
                   },
                   "inputs": {
                     "method": "POST",
-                    "uri": "@{parameters('windowsFuncAppUrl')}/api/orchestrators/WindowsDiskOrchestrator",
+                    "uri": "@{parameters('funcAppUrl')}/api/orchestrators/WindowsDiskOrchestrator",
                     "headers": {
                       "Content-Type": "application/json"
                     },
@@ -306,87 +287,13 @@
                     }
                   }
                 },
-                "Poll_Linux_Completion": {
-                  "type": "Until",
-                  "runAfter": {
-                    "Start_Linux_Orchestration": [
-                      "Succeeded"
-                    ]
-                  },
-                  "expression": "@equals(body('Check_Linux_Status')?['runtimeStatus'], 'Completed')",
-                  "limit": {
-                    "count": 240,
-                    "timeout": "PT4H"
-                  },
-                  "actions": {
-                    "Delay_Linux_30s": {
-                      "type": "Wait",
-                      "runAfter": {},
-                      "inputs": {
-                        "interval": {
-                          "count": 30,
-                          "unit": "Second"
-                        }
-                      }
-                    },
-                    "Check_Linux_Status": {
-                      "type": "Http",
-                      "runAfter": {
-                        "Delay_Linux_30s": [
-                          "Succeeded"
-                        ]
-                      },
-                      "inputs": {
-                        "method": "GET",
-                        "uri": "@body('Start_Linux_Orchestration')?['statusQueryGetUri']"
-                      }
-                    }
-                  }
-                },
-                "Poll_Windows_Completion": {
-                  "type": "Until",
-                  "runAfter": {
-                    "Start_Windows_Orchestration": [
-                      "Succeeded"
-                    ]
-                  },
-                  "expression": "@equals(body('Check_Windows_Status')?['runtimeStatus'], 'Completed')",
-                  "limit": {
-                    "count": 240,
-                    "timeout": "PT4H"
-                  },
-                  "actions": {
-                    "Delay_Windows_30s": {
-                      "type": "Wait",
-                      "runAfter": {},
-                      "inputs": {
-                        "interval": {
-                          "count": 30,
-                          "unit": "Second"
-                        }
-                      }
-                    },
-                    "Check_Windows_Status": {
-                      "type": "Http",
-                      "runAfter": {
-                        "Delay_Windows_30s": [
-                          "Succeeded"
-                        ]
-                      },
-                      "inputs": {
-                        "method": "GET",
-                        "uri": "@body('Start_Windows_Orchestration')?['statusQueryGetUri']"
-                      }
-                    }
-                  }
-                },
                 "Compose_Merged_Results": {
                   "type": "Compose",
                   "runAfter": {
-                    "Poll_Linux_Completion": [
+                    "Start_Linux_Orchestration": [
                       "Succeeded"
                     ],
-                    "Poll_Windows_Completion": [
+                    "Start_Windows_Orchestration": [
                       "Succeeded"
                     ],
                     "Discover_Unattached_Disks": [
@@ -394,8 +301,8 @@
                     ]
                   },
                   "inputs": {
-                    "linuxResults": "@body('Check_Linux_Status')?['output']?['results']",
-                    "windowsResults": "@body('Check_Windows_Status')?['output']?['results']",
+                    "linuxResults": "@body('Start_Linux_Orchestration')?['output']?['results']",
+                    "windowsResults": "@body('Start_Windows_Orchestration')?['output']?['results']",
                     "unattachedDisks": "@body('Discover_Unattached_Disks')?['data']",
                     "correlationId": "@variables('correlationId')"
                   }
@@ -409,7 +316,7 @@
                   },
                   "inputs": {
                     "method": "POST",
-                    "uri": "@{parameters('windowsFuncAppUrl')}/api/generate-excel",
+                    "uri": "@{parameters('funcAppUrl')}/api/generate-excel",
                     "headers": {
                       "Content-Type": "application/json"
                     },
@@ -420,10 +327,8 @@
               "outputs": {}
             },
             "storageAccountName": "[format('diskreportsa{0}', parameters('nameSuffix'))]",
-            "linuxFuncAppName": "[format('diskreport-linux-{0}', parameters('nameSuffix'))]",
-            "windowsFuncAppName": "[format('diskreport-win-{0}', parameters('nameSuffix'))]",
-            "linuxPlanName": "[format('diskreport-linux-plan-{0}', parameters('nameSuffix'))]",
-            "windowsPlanName": "[format('diskreport-win-plan-{0}', parameters('nameSuffix'))]",
+            "funcAppName": "[format('diskreport-func-{0}', parameters('nameSuffix'))]",
+            "funcPlanName": "[format('diskreport-plan-{0}', parameters('nameSuffix'))]",
             "appInsightsName": "[format('diskreport-ai-{0}', parameters('nameSuffix'))]",
             "logicAppName": "[format('diskreport-logic-{0}', parameters('nameSuffix'))]",
             "blobContainerName": "disk-reports",
@@ -501,69 +406,7 @@
             {
               "type": "Microsoft.Web/serverfarms",
               "apiVersion": "2023-12-01",
-              "name": "[variables('linuxPlanName')]",
-              "location": "[parameters('location')]",
-              "tags": "[parameters('tags')]",
-              "kind": "linux",
-              "sku": {
-                "name": "Y1",
-                "tier": "Dynamic"
-              },
-              "properties": {
-                "reserved": true
-              }
-            },
-            {
-              "type": "Microsoft.Web/sites",
-              "apiVersion": "2023-12-01",
-              "name": "[variables('linuxFuncAppName')]",
-              "location": "[parameters('location')]",
-              "tags": "[parameters('tags')]",
-              "kind": "functionapp,linux",
-              "identity": {
-                "type": "SystemAssigned"
-              },
-              "properties": {
-                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('linuxPlanName'))]",
-                "httpsOnly": true,
-                "siteConfig": {
-                  "linuxFxVersion": "PowerShell|7.4",
-                  "ftpsState": "Disabled",
-                  "minTlsVersion": "1.2",
-                  "appSettings": [
-                    {
-                      "name": "AzureWebJobsStorage",
-                      "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', variables('storageAccountName'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value)]"
-                    },
-                    {
-                      "name": "FUNCTIONS_EXTENSION_VERSION",
-                      "value": "~4"
-                    },
-                    {
-                      "name": "FUNCTIONS_WORKER_RUNTIME",
-                      "value": "powershell"
-                    },
-                    {
-                      "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
-                      "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').InstrumentationKey]"
-                    },
-                    {
-                      "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
-                      "value": "[reference(resourceId('Microsoft.Insights/components', variables('appInsightsName')), '2020-02-02').ConnectionString]"
-                    }
-                  ]
-                }
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
-                "[resourceId('Microsoft.Web/serverfarms', variables('linuxPlanName'))]",
-                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
-              ]
-            },
-            {
-              "type": "Microsoft.Web/serverfarms",
-              "apiVersion": "2023-12-01",
-              "name": "[variables('windowsPlanName')]",
+              "name": "[variables('funcPlanName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
               "kind": "functionapp",
@@ -578,7 +421,7 @@
             {
               "type": "Microsoft.Web/sites",
               "apiVersion": "2023-12-01",
-              "name": "[variables('windowsFuncAppName')]",
+              "name": "[variables('funcAppName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
               "kind": "functionapp",
@@ -586,10 +429,10 @@
                 "type": "SystemAssigned"
               },
               "properties": {
-                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('windowsPlanName'))]",
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('funcPlanName'))]",
                 "httpsOnly": true,
                 "siteConfig": {
-                  "powerShellVersion": "7.4",
+                  "powerShellVersion": "7.2",
                   "ftpsState": "Disabled",
                   "minTlsVersion": "1.2",
                   "appSettings": [
@@ -603,7 +446,7 @@
                     },
                     {
                       "name": "WEBSITE_CONTENTSHARE",
-                      "value": "[toLower(variables('windowsFuncAppName'))]"
+                      "value": "[toLower(variables('funcAppName'))]"
                     },
                     {
                       "name": "FUNCTIONS_EXTENSION_VERSION",
@@ -634,22 +477,7 @@
               },
               "dependsOn": [
                 "[resourceId('Microsoft.Insights/components', variables('appInsightsName'))]",
-                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
-                "[resourceId('Microsoft.Web/serverfarms', variables('windowsPlanName'))]"
-              ]
-            },
-            {
-              "type": "Microsoft.Authorization/roleAssignments",
-              "apiVersion": "2022-04-01",
-              "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), resourceId('Microsoft.Web/sites', variables('linuxFuncAppName')), variables('storageBlobContributorRoleId'))]",
-              "properties": {
-                "roleDefinitionId": "[variables('storageBlobContributorRoleId')]",
-                "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('linuxFuncAppName')), '2023-12-01', 'full').identity.principalId]",
-                "principalType": "ServicePrincipal"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', variables('linuxFuncAppName'))]",
+                "[resourceId('Microsoft.Web/serverfarms', variables('funcPlanName'))]",
                 "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
               ]
             },
@@ -657,15 +485,15 @@
               "type": "Microsoft.Authorization/roleAssignments",
               "apiVersion": "2022-04-01",
               "scope": "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), resourceId('Microsoft.Web/sites', variables('windowsFuncAppName')), variables('storageBlobContributorRoleId'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), resourceId('Microsoft.Web/sites', variables('funcAppName')), variables('storageBlobContributorRoleId'))]",
               "properties": {
                 "roleDefinitionId": "[variables('storageBlobContributorRoleId')]",
-                "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('windowsFuncAppName')), '2023-12-01', 'full').identity.principalId]",
+                "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('funcAppName')), '2023-12-01', 'full').identity.principalId]",
                 "principalType": "ServicePrincipal"
               },
               "dependsOn": [
-                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]",
-                "[resourceId('Microsoft.Web/sites', variables('windowsFuncAppName'))]"
+                "[resourceId('Microsoft.Web/sites', variables('funcAppName'))]",
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName'))]"
               ]
             },
             {
@@ -681,11 +509,8 @@
                 "state": "Enabled",
                 "definition": "[variables('$fxv#0')]",
                 "parameters": {
-                  "linuxFuncAppUrl": {
-                    "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('linuxFuncAppName')), '2023-12-01').defaultHostName)]"
-                  },
-                  "windowsFuncAppUrl": {
-                    "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('windowsFuncAppName')), '2023-12-01').defaultHostName)]"
+                  "funcAppUrl": {
+                    "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('funcAppName')), '2023-12-01').defaultHostName)]"
                   },
                   "subscriptionId": {
                     "value": "[subscription().subscriptionId]"
@@ -693,27 +518,18 @@
                 }
               },
               "dependsOn": [
-                "[resourceId('Microsoft.Web/sites', variables('linuxFuncAppName'))]",
-                "[resourceId('Microsoft.Web/sites', variables('windowsFuncAppName'))]"
+                "[resourceId('Microsoft.Web/sites', variables('funcAppName'))]"
               ]
             }
           ],
           "outputs": {
-            "linuxFuncAppName": {
+            "funcAppName": {
               "type": "string",
-              "value": "[variables('linuxFuncAppName')]"
+              "value": "[variables('funcAppName')]"
             },
-            "windowsFuncAppName": {
+            "funcPrincipalId": {
               "type": "string",
-              "value": "[variables('windowsFuncAppName')]"
-            },
-            "linuxFuncPrincipalId": {
-              "type": "string",
-              "value": "[reference(resourceId('Microsoft.Web/sites', variables('linuxFuncAppName')), '2023-12-01', 'full').identity.principalId]"
-            },
-            "windowsFuncPrincipalId": {
-              "type": "string",
-              "value": "[reference(resourceId('Microsoft.Web/sites', variables('windowsFuncAppName')), '2023-12-01', 'full').identity.principalId]"
+              "value": "[reference(resourceId('Microsoft.Web/sites', variables('funcAppName')), '2023-12-01', 'full').identity.principalId]"
             },
             "logicAppPrincipalId": {
               "type": "string",
@@ -740,13 +556,9 @@
       "type": "string",
       "value": "[parameters('resourceGroupName')]"
     },
-    "linuxFuncAppName": {
+    "funcAppName": {
       "type": "string",
-      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-diskreport-resources'), '2025-04-01').outputs.linuxFuncAppName.value]"
-    },
-    "windowsFuncAppName": {
-      "type": "string",
-      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-diskreport-resources'), '2025-04-01').outputs.windowsFuncAppName.value]"
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('resourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-diskreport-resources'), '2025-04-01').outputs.funcAppName.value]"
     },
     "storageAccountName": {
       "type": "string",

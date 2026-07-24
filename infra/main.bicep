@@ -43,8 +43,7 @@ var readerRoleId = subscriptionResourceId(
 
 // ─── Derived Names for Deterministic GUIDs ────────────────────────────────────
 
-var linuxFuncAppName = 'diskreport-linux-${nameSuffix}'
-var windowsFuncAppName = 'diskreport-win-${nameSuffix}'
+var funcAppName = 'diskreport-func-${nameSuffix}'
 var logicAppName = 'diskreport-logic-${nameSuffix}'
 
 // ─── Resource Group ─────────────────────────────────────────────────────────
@@ -67,27 +66,15 @@ module resources 'main.resources.bicep' = {
   }
 }
 
-// ─── RBAC: VM Contributor — Linux Function App MSI (Subscription Scope) ─────
+// ─── RBAC: VM Contributor — Function App MSI (Subscription Scope) ───────
 
-resource vmContributorLinux 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, linuxFuncAppName, vmContributorRoleId)
+resource vmContributorFunc 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(subscription().id, funcAppName, vmContributorRoleId)
   properties: {
     roleDefinitionId: vmContributorRoleId
-    principalId: resources.outputs.linuxFuncPrincipalId
+    principalId: resources.outputs.funcPrincipalId
     principalType: 'ServicePrincipal'
-    description: 'Linux Function App MSI — VM Contributor for RunShellScript'
-  }
-}
-
-// ─── RBAC: VM Contributor — Windows Function App MSI (Subscription Scope) ───
-
-resource vmContributorWindows 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(subscription().id, windowsFuncAppName, vmContributorRoleId)
-  properties: {
-    roleDefinitionId: vmContributorRoleId
-    principalId: resources.outputs.windowsFuncPrincipalId
-    principalType: 'ServicePrincipal'
-    description: 'Windows Function App MSI — VM Contributor for RunPowerShellScript'
+    description: 'Function App MSI — VM Contributor for RunShellScript and RunPowerShellScript'
   }
 }
 
@@ -106,7 +93,6 @@ resource logicAppReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 // ─── Outputs ────────────────────────────────────────────────────────────────
 
 output resourceGroupName string = rg.name
-output linuxFuncAppName string = resources.outputs.linuxFuncAppName
-output windowsFuncAppName string = resources.outputs.windowsFuncAppName
+output funcAppName string = resources.outputs.funcAppName
 output storageAccountName string = resources.outputs.storageAccountName
 output logicAppName string = resources.outputs.logicAppName

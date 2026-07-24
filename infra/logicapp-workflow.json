@@ -2,7 +2,7 @@
   "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "windowsFuncAppUrl": {
+    "funcAppUrl": {
       "type": "String",
       "defaultValue": ""
     },
@@ -113,7 +113,7 @@
       },
       "inputs": {
         "method": "POST",
-        "uri": "@{parameters('windowsFuncAppUrl')}/api/orchestrators/LinuxDiskOrchestrator",
+        "uri": "@{parameters('funcAppUrl')}/api/orchestrators/LinuxDiskOrchestrator",
         "headers": {
           "Content-Type": "application/json"
         },
@@ -130,7 +130,7 @@
       },
       "inputs": {
         "method": "POST",
-        "uri": "@{parameters('windowsFuncAppUrl')}/api/orchestrators/WindowsDiskOrchestrator",
+        "uri": "@{parameters('funcAppUrl')}/api/orchestrators/WindowsDiskOrchestrator",
         "headers": {
           "Content-Type": "application/json"
         },
@@ -162,7 +162,7 @@
       },
       "inputs": {
         "method": "POST",
-        "uri": "@{parameters('windowsFuncAppUrl')}/api/generate-excel",
+        "uri": "@{parameters('funcAppUrl')}/api/generate-excel",
         "headers": {
           "Content-Type": "application/json"
         },

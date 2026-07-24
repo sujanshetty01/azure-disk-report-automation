@@ -17,8 +17,8 @@ param tags object
 // ─── Derived Names ──────────────────────────────────────────────────────────
 
 var storageAccountName = 'diskreportsa${nameSuffix}'
-var windowsFuncAppName = 'diskreport-win-${nameSuffix}'
-var windowsPlanName = 'diskreport-win-plan-${nameSuffix}'
+var funcAppName = 'diskreport-func-${nameSuffix}'
+var funcPlanName = 'diskreport-plan-${nameSuffix}'
 var appInsightsName = 'diskreport-ai-${nameSuffix}'
 var logicAppName = 'diskreport-logic-${nameSuffix}'
 var blobContainerName = 'disk-reports'
@@ -90,11 +90,11 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 }
 
 // ============================================================================
-// 4. WINDOWS FUNCTION APP (Consumption Plan)
+// 4. FUNCTION APP (Consumption Plan)
 // ============================================================================
 
-resource windowsPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
-  name: windowsPlanName
+resource funcPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
+  name: funcPlanName
   location: location
   tags: tags
   kind: 'functionapp'
@@ -107,8 +107,8 @@ resource windowsPlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
 }
 
-resource windowsFuncApp 'Microsoft.Web/sites@2023-12-01' = {
-  name: windowsFuncAppName
+resource funcApp 'Microsoft.Web/sites@2023-12-01' = {
+  name: funcAppName
   location: location
   tags: tags
   kind: 'functionapp'
@@ -116,7 +116,7 @@ resource windowsFuncApp 'Microsoft.Web/sites@2023-12-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    serverFarmId: windowsPlan.id
+    serverFarmId: funcPlan.id
     httpsOnly: true
     siteConfig: {
       powerShellVersion: '7.2'
@@ -133,7 +133,7 @@ resource windowsFuncApp 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'WEBSITE_CONTENTSHARE'
-          value: toLower(windowsFuncAppName)
+          value: toLower(funcAppName)
         }
         {
           name: 'FUNCTIONS_EXTENSION_VERSION'
@@ -168,12 +168,12 @@ resource windowsFuncApp 'Microsoft.Web/sites@2023-12-01' = {
 // 5. RBAC: Storage Blob Data Contributor (both Function App MSIs)
 // ============================================================================
 
-resource blobRoleWindows 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, windowsFuncApp.id, storageBlobContributorRoleId)
+resource blobRoleFunc 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, funcApp.id, storageBlobContributorRoleId)
   scope: storageAccount
   properties: {
     roleDefinitionId: storageBlobContributorRoleId
-    principalId: windowsFuncApp.identity.principalId
+    principalId: funcApp.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -193,8 +193,8 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
     state: 'Enabled'
     definition: loadJsonContent('logicapp-workflow.json')
     parameters: {
-      windowsFuncAppUrl: {
-        value: 'https://${windowsFuncApp.properties.defaultHostName}'
+      funcAppUrl: {
+        value: 'https://${funcApp.properties.defaultHostName}'
       }
       subscriptionId: {
         value: subscription().subscriptionId
@@ -203,8 +203,8 @@ resource logicApp 'Microsoft.Logic/workflows@2019-05-01' = {
   }
 }
 
-output windowsFuncAppName string = windowsFuncApp.name
-output windowsFuncPrincipalId string = windowsFuncApp.identity.principalId
+output funcAppName string = funcApp.name
+output funcPrincipalId string = funcApp.identity.principalId
 output logicAppPrincipalId string = logicApp.identity.principalId
 output storageAccountName string = storageAccount.name
 output logicAppName string = logicApp.name

@@ -12,11 +12,10 @@ This project automatically scans an entire Azure subscription for all running Vi
 
 ## Architecture
 
-The project is built on three main components:
+The project is built on two main components:
 
 1. **Azure Logic App**: Orchestrates the entire workflow. It uses Azure Resource Graph to discover all running Windows and Linux VMs, and unattached disks. It triggers the respective Durable Function Orchestrators and passes the output to the Excel generator.
-2. **Linux Durable Functions App**: A PowerShell-based Azure Function App running on a Linux App Service Plan. It orchestrates the asynchronous execution of `df -h` on Linux VMs using the Azure REST API and calculates space/usage metrics.
-3. **Windows Durable Functions App**: A PowerShell-based Azure Function App running on a Windows App Service Plan. It orchestrates the asynchronous execution of `Get-Volume` on Windows VMs. It also hosts the `GenerateExcelReport` function which leverages the `ImportExcel` module to compile the final `.xlsx` file.
+2. **DiskCollectorApp**: A PowerShell-based Azure Function App. It orchestrates the asynchronous execution of `df -h` on Linux VMs and `Get-Volume` on Windows VMs using the Azure REST API and calculates space/usage metrics. It also hosts the `GenerateExcelReport` function which leverages the `ImportExcel` module to compile the final `.xlsx` file.
 
 ## Setup Instructions
 
@@ -33,27 +32,18 @@ This will deploy:
 - Resource Group
 - Storage Account
 - App Insights & Log Analytics Workspace
-- Windows App Service Plan & Function App
-- Linux App Service Plan & Function App
+- Function App and App Service Plan
 - Azure Logic App
 - Managed Identities with proper RBAC assignments (Contributor on subscription).
 
 ### 2. Deploy Azure Functions Code
 
-You can deploy the code directly to the created Function Apps.
+You can deploy the code directly to the created Function App.
 
-**Deploy Windows App:**
 ```powershell
-cd WindowsDiskCollectorApp
-Compress-Archive -Path * -DestinationPath windows-app.zip -Force
-az functionapp deployment source config-zip -g "rg-diskreport-prod01" -n "diskreport-win-prod01" --src windows-app.zip
-```
-
-**Deploy Linux App:**
-```powershell
-cd LinuxDiskCollectorApp
-Compress-Archive -Path * -DestinationPath linux-app.zip -Force
-az functionapp deployment source config-zip -g "rg-diskreport-prod01" -n "diskreport-linux-prod01" --src linux-app.zip
+cd DiskCollectorApp
+Compress-Archive -Path * -DestinationPath app.zip -Force
+az functionapp deployment source config-zip -g "rg-diskreport-prod01" -n "diskreport-func-prod01" --src app.zip
 ```
 
 ### 3. Setup Complete
